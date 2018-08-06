@@ -271,6 +271,7 @@ module PuppetDBExtensions
     elsif version.nil?
       version = PuppetDBExtensions.config[:package_build_version].to_s
       # If no version was defined, default to latest.
+      puts "PuppetDBExtensions.config[:package_build_version] value inside helper: version"
       if version == ''
         return 'latest'
       end
