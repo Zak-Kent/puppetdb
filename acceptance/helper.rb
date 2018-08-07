@@ -271,7 +271,6 @@ module PuppetDBExtensions
     elsif version.nil?
       version = PuppetDBExtensions.config[:package_build_version].to_s
       # If no version was defined, default to latest.
-      puts "PuppetDBExtensions.config[:package_build_version] value inside helper: version"
       if version == ''
         return 'latest'
       end
@@ -316,7 +315,7 @@ module PuppetDBExtensions
   def install_puppetdb(host, version=nil)
     manifest = <<-EOS
     class { 'puppetdb::globals':
-      version => '#{get_package_version(host, version)}'
+      version => 'latest'
     }
     class { 'puppetdb::server':
       manage_firewall => false,
