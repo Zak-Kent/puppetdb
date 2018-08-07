@@ -1,5 +1,5 @@
 # We skip this step entirely unless we are running in :upgrade mode.
-OLDEST_SUPPORTED_UPGRADE="2.3.8"
+OLDEST_SUPPORTED_UPGRADE="4.2.3.8"
 
 puts "inside step 70"
 
