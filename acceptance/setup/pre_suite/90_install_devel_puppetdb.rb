@@ -16,7 +16,7 @@ step "Install development build of PuppetDB on the PuppetDB server" do
       when :upgrade_latest || :upgrade_oldest
         version = 'latest'
       else
-        version = test_config[:package_build_version]
+        version = test_config[:package_build_version].to_s
       end
       Log.notify("Installing puppetdb from package; install mode: '#{test_config[:install_mode].inspect}'")
 

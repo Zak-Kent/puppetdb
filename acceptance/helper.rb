@@ -343,7 +343,14 @@ module PuppetDBExtensions
           else
             raise ArgumentError, "Unsupported OS family: '#{os}'"
         end
-      expected_version = get_package_version(host)
+
+      # TODO: make this less aweful once it's working
+      case test_config[:install_mode]
+      when :upgrade_latest || :upgrade_oldest
+        expected_version = get_package_version(host, 'latest')
+      else
+        expected_version = get_package_version(host)
+      end
 
       Beaker::Log.notify "Expecting package version: '#{expected_version}', actual version: '#{installed_version}'"
       if installed_version != expected_version and expected_version != 'latest'
