@@ -45,4 +45,5 @@ step "Install development build of PuppetDB on the PuppetDB server" do
   when :package
     install_puppetdb_termini(master, databases)
   end
+  puts "finished pre_suite step 90"
 end
