@@ -12,10 +12,16 @@ step "Install development build of PuppetDB on the PuppetDB server" do
       install_puppetdb_via_rake(database)
       start_puppetdb(database)
     when :package
+      case test_config[:install_mode]
+      when :upgrade_latest || :upgrade_oldest
+        version = 'latest'
+      else
+        version = test_config[:package_build_version]
+      end
       Log.notify("Installing puppetdb from package; install mode: '#{test_config[:install_mode].inspect}'")
 
       enable_https_apt_sources(database)
-      install_puppetdb(database)
+      install_puppetdb(database, version)
 
       if test_config[:validate_package_version]
         validate_package_version(database)
@@ -43,7 +49,7 @@ step "Install development build of PuppetDB on the PuppetDB server" do
   when :git
     install_puppetdb_termini_via_rake(master, databases)
   when :package
-    install_puppetdb_termini(master, databases)
+    install_puppetdb_termini(master, databases, version)
   end
   puts "finished pre_suite step 90"
 end
