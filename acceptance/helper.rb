@@ -313,9 +313,10 @@ module PuppetDBExtensions
   end
 
   def install_puppetdb(host, version=nil)
+    # can't just change the thing below to latest because it gets called by the thing in step 70 to install pdb
     manifest = <<-EOS
     class { 'puppetdb::globals':
-      version => 'latest'
+      version => '#{get_package_version(host, version)}'
     }
     class { 'puppetdb::server':
       manage_firewall => false,
