@@ -481,7 +481,7 @@ module PuppetDBExtensions
     print_ini_files(host)
   end
 
-  def install_puppetdb_termini_via_rake(host, databases)
+  def install_puppetdb_termini_via_rake(host, databases, version=nil)
     # Uncomment for pinning against a particular ezbake revision
     #ezbake_dev_build("git@github.com:kbarber/ezbake.git", "pdb-1455")
 
@@ -490,7 +490,7 @@ module PuppetDBExtensions
     server_urls = databases.map {|db| "https://#{db.node_name}:8081"}.join(',')
     manifest = <<-EOS
       class { 'puppetdb::globals':
-        version => '#{get_package_version(host)}'
+        version => '#{get_package_version(host, version)}'
       }
       include puppetdb::master::routes
       include puppetdb::master::storeconfigs
