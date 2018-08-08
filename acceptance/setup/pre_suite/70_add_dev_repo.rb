@@ -1,6 +1,6 @@
 repo_config_dir = 'tmp/repo_configs'
 # TODO figure out a better way to share this information across steps
-build_version = test_config[:install_mode] == :upgrade_oldest ? "4.4.3" : test_config[:package_build_version]
+build_version = test_config[:install_mode] == :upgrade_oldest ? "4.2.3.8" : test_config[:package_build_version]
 
 Log.notify("value of build version in step 70: #{build_version}")
 Log.notify("value of test_config[:install_mode]: #{test_config[:install_mode]}")
