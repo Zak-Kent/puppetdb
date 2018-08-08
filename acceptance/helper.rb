@@ -347,7 +347,7 @@ module PuppetDBExtensions
 
       # TODO: make this less aweful once it's working
       case test_config[:install_mode]
-      when :upgrade_latest || :upgrade_oldest
+      when :upgrade_latest, :upgrade_oldest
         expected_version = get_package_version(host, 'latest')
       else
         expected_version = get_package_version(host)
