@@ -1,4 +1,12 @@
 step "Install development build of PuppetDB on the PuppetDB server" do
+
+  case test_config[:install_mode]
+  when :upgrade_latest || :upgrade_oldest
+    version = 'latest'
+  else
+    version = test_config[:package_build_version].to_s
+  end
+
   databases.each do |database|
     os = test_config[:os_families][database.name]
 
@@ -12,12 +20,6 @@ step "Install development build of PuppetDB on the PuppetDB server" do
       install_puppetdb_via_rake(database)
       start_puppetdb(database)
     when :package
-      case test_config[:install_mode]
-      when :upgrade_latest || :upgrade_oldest
-        version = 'latest'
-      else
-        version = test_config[:package_build_version].to_s
-      end
       Log.notify("Installing puppetdb from package; install mode: '#{test_config[:install_mode].inspect}'")
       Log.notify("Value of test_config[:install_type]: #{test_config[:install_type]}")
       enable_https_apt_sources(database)
