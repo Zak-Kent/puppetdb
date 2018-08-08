@@ -312,6 +312,11 @@ module PuppetDBExtensions
     end
   end
 
+  def calc_oldest_supported_version
+    # need to change the oldest supported version on bionic due to not having older packages available
+    puts test_config
+  end
+
   def install_puppetdb(host, version=nil)
     # can't just change the thing below to latest because it gets called by the thing in step 70 to install pdb
     manifest = <<-EOS
@@ -345,7 +350,7 @@ module PuppetDBExtensions
             raise ArgumentError, "Unsupported OS family: '#{os}'"
         end
 
-      # TODO: make this less aweful once it's working
+      # TODO: make this less aweful once it's working, this check is done in step 90 and needs to be turned off when we're installing the latest version
       case test_config[:install_mode]
       when :upgrade_latest, :upgrade_oldest
         expected_version = get_package_version(host, 'latest')

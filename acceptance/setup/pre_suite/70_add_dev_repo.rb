@@ -5,6 +5,9 @@ build_version = test_config[:install_mode] == :upgrade_oldest ? "4.2.3.8" : test
 Log.notify("value of build version in step 70: #{build_version}")
 Log.notify("value of test_config[:install_mode]: #{test_config[:install_mode]}")
 
+Log.notify(test_config)
+Log.notify("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
 
 if (test_config[:install_type] == :package \
    and test_config[:package_build_version] \
