@@ -1,7 +1,7 @@
 step "Install development build of PuppetDB on the PuppetDB server" do
 
   case test_config[:install_mode]
-  when :upgrade_latest || :upgrade_oldest
+  when :upgrade_latest, :upgrade_oldest
     version = 'latest'
   else
     version = test_config[:package_build_version].to_s
