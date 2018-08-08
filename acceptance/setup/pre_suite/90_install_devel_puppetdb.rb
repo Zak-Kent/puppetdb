@@ -23,6 +23,7 @@ step "Install development build of PuppetDB on the PuppetDB server" do
       enable_https_apt_sources(database)
       install_puppetdb(database, version)
 
+      Log.notify("Value of version before calling validate package version: #{version}")
       if test_config[:validate_package_version]
         validate_package_version(database)
       end
@@ -45,6 +46,7 @@ step "Install development build of PuppetDB on the PuppetDB server" do
     end
   end
 
+  Log.notify("Value of version before calling install termini: #{version}")
   case test_config[:install_type]
   when :git
     install_puppetdb_termini_via_rake(master, databases, version)
