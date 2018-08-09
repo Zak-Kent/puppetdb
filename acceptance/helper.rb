@@ -312,9 +312,9 @@ module PuppetDBExtensions
     end
   end
 
-  def calc_oldest_supported_version
-    # need to change the oldest supported version on bionic due to not having older packages available
-    puts test_config
+  def oldest_supported
+    # this turns off upgrade_oldest tests in bionic beacause we don't have any dev repos for it yet
+    return (test_config[:os_families].has_key? 'ubuntu1804-64-1') ? 'latest' : '4.2.3.8'
   end
 
   def install_puppetdb(host, version=nil)
