@@ -25,9 +25,10 @@ module PuppetDBExtensions
       [:git, :package, :pe], "install type", "PUPPETDB_INSTALL_TYPE", :git)
 
     install_mode =
-        get_option_value(options[:install_mode],
-                         [:install, :upgrade_latest, :upgrade_oldest], "install mode",
-                         "INSTALL_MODE", :install)
+      get_option_value(options[:install_type],
+      # install_type is being set in ci-job-configs, change that and drop this commit once you do
+                         [:install, :upgrade_latest, :upgrade_oldest], "install type",
+                         "INSTALL_TYPE", :install)
 
     validate_package_version =
         get_option_value(options[:puppetdb_validate_package_version],
