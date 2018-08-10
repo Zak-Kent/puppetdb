@@ -16,7 +16,7 @@ set -x
 # Beaker params
 export BEAKER_COLOR=false
 export BEAKER_XML=true
-export PUPPETDB_INSTALL_TYPE=package
+export PUPPETDB_INSTALL_TYPE=git
 export PUPPETDB_USE_PROXIES=false
 export BEAKER_project=PuppetDB
 export BEAKER_department=sre-dept
