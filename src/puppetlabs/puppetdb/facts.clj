@@ -11,7 +11,9 @@
             [schema.core :as s]
             [puppetlabs.puppetdb.time :refer [to-timestamp]]
             [puppetlabs.puppetdb.package-util :refer [package-tuple hashed-package-tuple
-                                                      package-tuple-hash]]))
+                                                      package-tuple-hash]])
+  (:import
+   (java.util.regex Pattern)))
 
 ;; SCHEMA
 
@@ -133,6 +135,23 @@
    (kitchensink/boolean? data) 3
    (nil? data) 4
    (coll? data) 5))
+
+(defn fact-splitter [fact]
+  "Split fact-blacklist facts if they contain supported globbing chars: * or ?
+   Example: 'hell*0' outputs ['hell' '*' 'o']"
+  (let [a (Pattern/quote "*")
+        q (Pattern/quote "?")
+        split-pat (re-pattern (str "(?=" a "|" q ")|(?<=" a "|" q")"))]
+    (str/split fact split-pat)))
+
+(defn quote-globs [ss-vec]
+  "Take a vec of sub-strings and replace supported globbing chars with
+   their regex equivalent and quote all other sub-strings"
+  (let [quoter #(case %
+                  "*" ".*"
+                  "?" "."
+                  (Pattern/quote %))]
+    (map quoter ss-vec)))
 
 (defn value->valuemap
   [value]

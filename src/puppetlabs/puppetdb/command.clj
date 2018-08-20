@@ -296,12 +296,33 @@
 
 ;; Fact replacement
 
+(defn delete-blacklisted-facts [facts-blacklist fact-values]
+  "This function adds support for blacklisting facts with the '*' and '?'
+   globbing characters. Only these characters are supported and all others are
+   quoted to avoid unintended consequences when using re-matches"
+  (let [glob? #(if (> (count %) 1) true false)
+        {globs true facts false} (->> facts-blacklist
+                                      (map fact/fact-splitter)
+                                      (group-by glob?))
+        glob-patterns (when globs (->> globs
+                                       (map fact/quote-globs)
+                                       (map #(apply str %))))
+        filtered-facts (apply dissoc fact-values (apply concat facts))]
+    (if (seq glob-patterns)
+      (->> (for [kv filtered-facts
+                 g glob-patterns
+                 :let [k (first kv)]
+                 :when (re-matches (re-pattern g) k)]
+             k)
+           (apply dissoc filtered-facts))
+      filtered-facts)))
+
 (defn replace-facts*
   [{:keys [payload id received] :as command} start-time db facts-blacklist]
   (let [{:keys [certname package_inventory] :as fact-data} payload
         producer-timestamp (:producer_timestamp fact-data)
         trimmed-facts (cond-> fact-data
-                        (seq facts-blacklist) (update :values #(apply dissoc % facts-blacklist))
+                        (seq facts-blacklist) (update :values (partial delete-blacklisted-facts facts-blacklist))
                         (seq package_inventory) (update :package_inventory distinct))]
     (jdbc/with-transacted-connection' db :repeatable-read
       (scf-storage/maybe-activate-node! certname producer-timestamp)

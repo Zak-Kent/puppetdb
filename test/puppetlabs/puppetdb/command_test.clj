@@ -81,7 +81,7 @@
         dlo (dlo/initialize (.toPath dlo-dir)
                              (:registry (new-metrics "puppetlabs.puppetdb.dlo"
                                                      :jmx? false)))
-        blacklisted-facts ["blacklisted-fact"]]
+        blacklisted-facts ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]]
     (map->CommandHandlerContext
      {:handle-message (message-handler
                        q
@@ -721,7 +721,12 @@
 
   (deftest facts-blacklist
     (dotestseq [version fact-versions
-                :let [command (update facts :values #(assoc % "blacklisted-fact" "val"))]]
+                :let [command (update facts :values
+                                      #(assoc % "blacklisted-fact" "val"
+                                              "prefix" "val"
+                                              "facts-suff" "val"
+                                              "glob" "val"
+                                              "puppet" "val"))]]
       (testing "should ignore the blacklisted fact"
         (with-message-handler {:keys [handle-message dlo delay-pool q]}
           (handle-message (queue/store-command q (facts->command-req (version-kwd->num version) command)))
