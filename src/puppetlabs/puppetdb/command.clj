@@ -593,7 +593,8 @@
 (defservice command-service
   PuppetDBCommandDispatcher
   [[:DefaultedConfig get-config]
-   [:PuppetDBServer shared-globals]]
+   [:PuppetDBServer shared-globals]
+   [:ShutdownService request-shutdown]]
   (init [this context]
     (let [response-chan (async/chan 1000)
           response-mult (async/mult response-chan)
@@ -642,16 +643,15 @@
              :consumer-threadpool command-threadpool)))
 
   (stop [this {:keys [consumer-threadpool command-chan delay-pool] :as context}]
-    (async/close! command-chan)
-    (gtp/shutdown consumer-threadpool)
-    (when delay-pool
-      (stop-and-reset-pool! delay-pool))
+    (some-> command-chan async/close!)
+    (some-> consumer-threadpool gtp/shutdown)
+    (some-> delay-pool stop-and-reset-pool!)
     (async/unsub-all (:response-pub context))
     (async/untap-all (:response-mult context))
     (async/close! (:response-chan-for-pub context))
     (async/close! (:response-chan context))
-    (dissoc context :response-pub :response-chan :response-chan-for-pub :response-mult)
-    context)
+    (dissoc context
+            :response-pub :response-chan :response-chan-for-pub :response-mult))
 
   (stats [this]
     @(:stats (service-context this)))
