@@ -296,12 +296,13 @@
 
 ;; Fact replacement
 
-(defn delete-blacklisted-facts [facts-blacklist fact-values]
+(defn delete-blacklisted-facts [facts-blacklist-actual fact-values]
   "This function adds support for blacklisting facts with the '*' and '?'
    globbing characters. Only these characters are supported and all others are
    quoted to avoid unintended consequences when using re-matches"
+  (prn "in that new shiiiiittttt")
   (let [glob? #(if (> (count %) 1) true false)
-        {globs true facts false} (->> facts-blacklist
+        {globs true facts false} (->> facts-blacklist-actual
                                       (map fact/fact-splitter)
                                       (group-by glob?))
         glob-patterns (when globs (->> globs
@@ -317,12 +318,32 @@
            (apply dissoc filtered-facts))
       filtered-facts)))
 
+;; what to do with old behavior
+;; (update :values #(apply dissoc % facts-blacklist)
+
+(comment
+  (let [{:keys [fact-blacklist fact-blacklist-type]}
+        {:fact-blacklist ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"], :fact-blacklist-type "regular"}]
+
+    fact-blacklist-type
+
+    #(apply dissoc % fact-blacklist)
+
+    )
+
+  )
+
 (defn replace-facts*
-  [{:keys [payload id received] :as command} start-time db facts-blacklist]
+  [{:keys [payload id received] :as command} start-time db
+   {:keys [facts-blacklist facts-blacklist-type] :as blist-map}]
+  ;; TODO handle a facts-blacklist/type map here and switch the behavior
   (let [{:keys [certname package_inventory] :as fact-data} payload
         producer-timestamp (:producer_timestamp fact-data)
+        facts-blist-func (case facts-blacklist-type
+                           "regular" #(apply dissoc % facts-blacklist)
+                           "globbing" (partial delete-blacklisted-facts facts-blacklist))
         trimmed-facts (cond-> fact-data
-                        (seq facts-blacklist) (update :values (partial delete-blacklisted-facts facts-blacklist))
+                        (seq facts-blacklist) (update :values facts-blist-func)
                         (seq package_inventory) (update :package_inventory distinct))]
     (jdbc/with-transacted-connection' db :repeatable-read
       (scf-storage/maybe-activate-node! certname producer-timestamp)
@@ -330,12 +351,12 @@
     (log-command-processed-messsage id received start-time :replace-facts certname)))
 
 (defn replace-facts
-  [{:keys [payload version received] :as command} start-time db facts-blacklist]
+  [{:keys [payload version received] :as command} start-time db fact-blist-map]
   (replace-facts* (upon-error-throw-fatality
                     (assoc command :payload (fact/normalize-facts version received payload)))
                   start-time
                   db
-                  facts-blacklist))
+                  fact-blist-map))
 
 ;; Node deactivation
 
@@ -408,12 +429,12 @@
 (defn process-command!
   "Takes a command object and processes it to completion. Dispatch is
    based on the command's name and version information"
-  [{command-name :command version :version delete? :delete? :as command} db facts-blacklist]
+  [{command-name :command version :version delete? :delete? :as command} db fact-blist-map]
   (when-not delete?
     (let [start (now)]
       (condp supported-command-version? [command-name version]
         "replace catalog" (replace-catalog command start db)
-        "replace facts" (replace-facts command start db facts-blacklist)
+        "replace facts" (replace-facts command start db fact-blist-map)
         "store report" (store-report command start db)
         "deactivate node" (deactivate-node command start db)))))
 
@@ -464,11 +485,11 @@
 (def quick-retry-count 4)
 
 (defn process-command-and-respond!
-  [{:keys [callback] :as cmd} db response-pub-chan stats-atom facts-blacklist]
+  [{:keys [callback] :as cmd} db response-pub-chan stats-atom fact-blist-map]
   (try
     (let [result (call-with-quick-retry quick-retry-count
                   (fn []
-                    (process-command! cmd db facts-blacklist)))]
+                    (process-command! cmd db fact-blist-map)))]
       (swap! stats-atom update :executed-commands inc)
       (callback {:command cmd :result result})
       (async/>!! response-pub-chan
@@ -512,7 +533,7 @@
   "Parses, processes and acknowledges a successful command ref and
   updates the relevant metrics. Any exceptions that arise are
   unhandled and expected to be caught by the caller."
-  [cmdref q scf-write-db response-chan stats facts-blacklist]
+  [cmdref q scf-write-db response-chan stats fact-blist-map]
   (let [{:keys [command version] :as cmd} (queue/cmdref->cmd q cmdref)
         retries (count (:attempts cmdref))]
     (if-not cmd
@@ -533,7 +554,7 @@
          [(global-metric :processing-time)
           (cmd-metric command version :processing-time)]
 
-         (process-command-and-respond! cmd scf-write-db response-chan stats facts-blacklist)
+         (process-command-and-respond! cmd scf-write-db response-chan stats fact-blist-map)
          (mark-both-metrics! command version :processed))
 
         (queue/ack-command q cmd)
@@ -563,7 +584,7 @@
   "Processes the message via (process-message msg), retrying messages
   that fail via (delay-message msg), and discarding messages that have
   fatal errors or have exceeded their maximum allowed attempts."
-  [q command-chan dlo delay-pool scf-write-db response-chan stats facts-blacklist]
+  [q command-chan dlo delay-pool scf-write-db response-chan stats fact-blist-map]
   (fn [{:keys [certname command version received delete? id] :as cmdref}]
     (try+
 
@@ -579,7 +600,7 @@
        (process-delete-cmdref cmdref q scf-write-db response-chan stats)
        (let [retries (count (:attempts cmdref))]
          (try+
-          (process-cmdref cmdref q scf-write-db response-chan stats facts-blacklist)
+          (process-cmdref cmdref q scf-write-db response-chan stats fact-blist-map)
           (catch fatal? obj
             (mark! (global-metric :fatal))
             (let [ex (:cause obj)]
@@ -646,6 +667,13 @@
           command-threadpool (create-command-handler-threadpool (conf/mq-thread-count (get-config)))
           {:keys [command-chan]} (shared-globals)
           delay-pool (:delay-pool context)
+          _ (prn "**********")
+          _ (prn (get-in (get-config) [:database :facts-blacklist-type]))
+          _ (prn (-> (get-config)
+                     :database
+                     (select-keys [:facts-blacklist-type
+                                   :facts-blacklist])))
+          _ (prn "^^^^^^^^^")
           handle-cmd (message-handler q
                                       command-chan
                                       dlo
@@ -653,7 +681,12 @@
                                       scf-write-db
                                       response-chan
                                       (:stats context)
-                                      (get-in (get-config) [:database :facts-blacklist]))]
+                                      (-> (get-config)
+                                          :database
+                                          (select-keys [:facts-blacklist
+                                                        :facts-blacklist-type]))
+                                      #_(get-in (get-config) [:database :facts-blacklist])
+                                      )]
 
       (doto (Thread. (fn []
                        (try+ (gtp/dochan command-threadpool handle-cmd command-chan)

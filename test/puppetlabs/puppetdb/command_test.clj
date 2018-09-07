@@ -81,7 +81,10 @@
         dlo (dlo/initialize (.toPath dlo-dir)
                              (:registry (new-metrics "puppetlabs.puppetdb.dlo"
                                                      :jmx? false)))
-        blacklisted-facts ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]]
+        ;; blacklisted-facts ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]
+        fact-blist-map {:facts-blacklist ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]
+                        :facts-blacklist-type "regular"}
+        ]
     (map->CommandHandlerContext
      {:handle-message (message-handler
                        q
@@ -91,7 +94,7 @@
                        *db*
                        response-chan
                        stats
-                       blacklisted-facts)
+                       fact-blist-map)
       :command-chan command-chan
       :dlo dlo
       :delay-pool delay-pool
