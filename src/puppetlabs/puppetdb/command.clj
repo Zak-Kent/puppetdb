@@ -318,25 +318,12 @@
            (apply dissoc filtered-facts))
       filtered-facts)))
 
-;; what to do with old behavior
-;; (update :values #(apply dissoc % facts-blacklist)
-
-(comment
-  (let [{:keys [fact-blacklist fact-blacklist-type]}
-        {:fact-blacklist ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"], :fact-blacklist-type "regular"}]
-
-    fact-blacklist-type
-
-    #(apply dissoc % fact-blacklist)
-
-    )
-
-  )
-
 (defn replace-facts*
   [{:keys [payload id received] :as command} start-time db
-   {:keys [facts-blacklist facts-blacklist-type] :as blist-map}]
+   {:keys [facts-blacklist facts-blacklist-type]}]
   ;; TODO handle a facts-blacklist/type map here and switch the behavior
+  (prn facts-blacklist-type)
+  (prn facts-blacklist)
   (let [{:keys [certname package_inventory] :as fact-data} payload
         producer-timestamp (:producer_timestamp fact-data)
         facts-blist-func (case facts-blacklist-type
@@ -345,6 +332,9 @@
         trimmed-facts (cond-> fact-data
                         (seq facts-blacklist) (update :values facts-blist-func)
                         (seq package_inventory) (update :package_inventory distinct))]
+    ;; (clojure.pprint/pprint fact-data)
+    ;; (prn "~~~~~~~~~~~~~~~")
+    ;; (clojure.pprint/pprint trimmed-facts)
     (jdbc/with-transacted-connection' db :repeatable-read
       (scf-storage/maybe-activate-node! certname producer-timestamp)
       (scf-storage/replace-facts! trimmed-facts))

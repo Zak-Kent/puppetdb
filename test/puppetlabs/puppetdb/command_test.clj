@@ -71,6 +71,10 @@
     (fs/delete-dir (:path dlo))
     (#'overtone.at-at/shutdown-pool-now! @(:pool-atom delay-pool))))
 
+;; TODO figure out if there is a better way to do this
+(def facts-blacklist-map {:facts-blacklist ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]
+                          :facts-blacklist-type "globbing"})
+
 (defn create-message-handler-context [q]
   (let [delay-pool (mk-pool)
         command-chan (async/chan 10)
@@ -82,8 +86,6 @@
                              (:registry (new-metrics "puppetlabs.puppetdb.dlo"
                                                      :jmx? false)))
         ;; blacklisted-facts ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]
-        fact-blist-map {:facts-blacklist ["blacklisted-fact" "pre*" "*suff" "gl?b" "pu*et"]
-                        :facts-blacklist-type "regular"}
         ]
     (map->CommandHandlerContext
      {:handle-message (message-handler
@@ -94,7 +96,7 @@
                        *db*
                        response-chan
                        stats
-                       fact-blist-map)
+                       facts-blacklist-map)
       :command-chan command-chan
       :dlo dlo
       :delay-pool delay-pool
@@ -722,7 +724,8 @@
                     certname]
                    {:as-arrays? true}))))))))
 
-  (deftest facts-blacklist
+  (deftest facts-blacklist-globbing
+    (prn "ahahahah")
     (dotestseq [version fact-versions
                 :let [command (update facts :values
                                       #(assoc % "blacklisted-fact" "val"
@@ -730,6 +733,9 @@
                                               "facts-suff" "val"
                                               "glob" "val"
                                               "puppet" "val"))]]
+               (prn "cCCCCCCCC")
+               (prn command)
+               (prn "CCCCCCCCCC")
       (testing "should ignore the blacklisted fact"
         (with-message-handler {:keys [handle-message dlo delay-pool q]}
           (handle-message (queue/store-command q (facts->command-req (version-kwd->num version) command)))
@@ -750,6 +756,38 @@
                  [{:certname certname :name "a" :value "1"}
                   {:certname certname :name "b" :value "2"}
                   {:certname certname :name "c" :value "3"}]))))))
+
+    (deftest facts-blacklist-regular
+        (prn "ahahahah")
+        (dotestseq [version fact-versions
+                    :let [command (update facts :values
+                                          #(assoc % "blacklisted-fact" "val"))]]
+                  (prn "cCCCCCCCC")
+                  (prn command)
+                  (prn "CCCCCCCCCC")
+          (testing "should ignore the blacklisted fact"
+            (with-redefs [facts-blacklist-map
+                          {:facts-blacklist ["blacklisted-fact"]
+                           :facts-blacklist-type "regular"}]
+              (with-message-handler {:keys [handle-message dlo delay-pool q]}
+                (handle-message (queue/store-command q (facts->command-req (version-kwd->num version) command)))
+                (is (= (query-to-vec
+                        "SELECT fp.path as name,
+                              COALESCE(fv.value_string,
+                                      cast(fv.value_integer as text),
+                                      cast(fv.value_boolean as text),
+                                      cast(fv.value_float as text),
+                                      '') as value,
+                              fs.certname
+                      FROM factsets fs
+                        INNER JOIN facts as f on fs.id = f.factset_id
+                        INNER JOIN fact_values as fv on f.fact_value_id = fv.id
+                        INNER JOIN fact_paths as fp on f.fact_path_id = fp.id
+                      WHERE fp.depth = 0
+                      ORDER BY name ASC")
+                       [{:certname certname :name "a" :value "1"}
+                        {:certname certname :name "b" :value "2"}
+                        {:certname certname :name "c" :value "3"}])))))))
 
   (deftest replace-facts-no-facts
     (dotestseq [version fact-versions
