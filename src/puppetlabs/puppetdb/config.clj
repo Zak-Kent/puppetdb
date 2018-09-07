@@ -73,7 +73,10 @@
      :statements-cache-size (pls/defaulted-maybe s/Int 0)
      :connection-timeout (pls/defaulted-maybe s/Int 3000)
      :facts-blacklist (s/conditional string? String
-                                     sequential? [s/Str])}))
+                                     sequential? [s/Str])
+     ;; TODO will need to figure out what we want to call this
+     :facts-blacklist-type (pls/defaulted-maybe String "regular")
+     }))
 
 (def write-database-config-in
   "Includes the common database config params, also the write-db specific ones"
@@ -107,7 +110,8 @@
    (s/optional-key :user) String
    (s/optional-key :password) String
    (s/optional-key :syntax_pgs) String
-   (s/optional-key :facts-blacklist) clojure.lang.PersistentVector})
+   (s/optional-key :facts-blacklist) clojure.lang.PersistentVector
+   :facts-blacklist-type String})
 
 (def write-database-config-out
   "Schema for parsed/processed database config that includes write database params"

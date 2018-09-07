@@ -104,6 +104,15 @@
         (is (= (get-in config [:read-database :maximum-pool-size]) 25))
         (is (= (get-in config [:database :maximum-pool-size]) 25))))
 
+    ;; TODO figure out what we want to call the default vs. glob values
+    (testing "facts-blacklist-type defaults to regular"
+      (let [config (-> {:database {:classname "something"
+                                   :subname "stuff"
+                                   :subprotocol "more stuff"}}
+                       (configure-section :database write-database-config-in write-database-config-out)
+                       configure-read-db)]
+        (is (= (get-in config [:database :facts-blacklist-type]) "regular"))))
+
     (testing "facts-blacklist string from .ini converted correctly"
       (let [config (-> {:database {:classname "something"
                                    :subname "stuff"
