@@ -1,5 +1,7 @@
 repo_config_dir = 'tmp/repo_configs'
 puts "whwhwhwhwhwhwhwhwhwhh"
+puts test_config[:package_build_version]
+puts "^^^^^^^^^^^^^^^^^^^^^"
 if (test_config[:install_type] == :package \
    and test_config[:package_build_version] \
    and not test_config[:skip_presuite_provisioning])
