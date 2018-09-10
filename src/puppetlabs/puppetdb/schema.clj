@@ -9,7 +9,6 @@
             [cheshire.custom :as json]
             [slingshot.slingshot :refer [throw+]]))
 
-
 (defrecord DefaultedMaybe [schema default]
   s/Schema
   (s/spec [this]
@@ -56,6 +55,11 @@
                  (map str/trim)
                  (apply vector))
     sequential? (vec fact-list)
+    ;; TODO is it ok to throw during conversion????????
+    ;; if it is ok you could use the conversion step as a way to check
+    ;; if the input is valid regex and throw from here if it's not
+    ;; looks like this may be ok because the conversion func: convert-to-schema below
+    ;; says it validates while doing the conversion, this is actually the place to put this check for regex
     :else (throw (Exception. "Invalid facts blacklist format"))))
 
 (defn period?

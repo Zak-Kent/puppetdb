@@ -5,7 +5,8 @@
    The schemas in this file define what is expected to be present in the INI file
    and the format expected by the rest of the application."
   (:import [java.security KeyStore]
-           [org.joda.time Minutes Days Period])
+           [org.joda.time Minutes Days Period]
+           [java.util.regex PatternSyntaxException])
   (:require [puppetlabs.i18n.core :refer [trs]]
             [clojure.tools.logging :as log]
             [puppetlabs.kitchensink.core :as kitchensink]
@@ -49,6 +50,23 @@
   [map-schema]
   (kitchensink/mapkeys s/optional-key map-schema))
 
+(defn blacklist-regex-pred [blist]
+  ;; pred to validate regex in the blacklist option
+  (try
+    (re-pattern blist)
+    (catch PatternSyntaxException e
+      (prn (:cause (Throwable->map e)))
+      false))
+  true)
+
+(comment
+  (try
+    (re-pattern "$(ahahh]")
+    (catch PatternSyntaxException e
+      (prn (:cause (Throwable->map e)))
+      false))
+  )
+
 (def database-config-in
   "Schema for incoming database config (user defined)"
   (all-optional
@@ -76,6 +94,8 @@
                                      sequential? [s/Str])
      ;; TODO will need to figure out what we want to call this
      :facts-blacklist-type (pls/defaulted-maybe String "regular")
+     ;; :facts-blacklist-regex (s/pred blacklist-regex-pred)
+     ;; still need to figure out the conversion needed when this goes in as well
      }))
 
 (def write-database-config-in
@@ -199,12 +219,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Database config
 
+
+;; copy what is here for facts-blist
 (defn validate-db-settings
   "Throws a {:type ::cli-error :message m} exception
   describing the required additions if the [database] configuration
   doesn't specify classname, subprotocol and subname, all of which are
   now required."
   [{db-config :database :or {db-config {}} :as config}]
+  ;; look at this for a way to mess with the config options
   (when (str/blank? (:subname db-config))
     (throw+
      {:type ::cli-error
