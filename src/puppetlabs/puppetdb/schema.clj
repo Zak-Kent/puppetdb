@@ -7,7 +7,9 @@
             [clojure.string :as str]
             [schema.utils :as su]
             [cheshire.custom :as json]
-            [slingshot.slingshot :refer [throw+]]))
+            [slingshot.slingshot :refer [throw+]])
+  (:import
+  (java.util.regex Pattern)))
 
 (defrecord DefaultedMaybe [schema default]
   s/Schema
@@ -50,6 +52,10 @@
   "Take a facts list as either a comma seperated string
    or a sequence and return a vector of those facts"
   [fact-list]
+  (prn "fact-list FFFFFFFFFFFFFF")
+  (prn fact-list)
+  ;; TODO figure out exactly when this is happening it seems that the thing I'm messing with is changing the config
+  ;; before we get here and this conversion step doesn't seem to notice
   (cond
     string? (->> (str/split fact-list #",")
                  (map str/trim)
@@ -66,6 +72,16 @@
   "True if `x` is a JodaTime Period"
   [x]
   (instance? org.joda.time.Period x))
+
+(defn pattern?
+  "True if `x` is a java.util.regex Pattern"
+  [x]
+  (= Pattern (type x)))
+
+(defn valid-blacklist?
+  "True if `x` is either a sequence of strings or patterns"
+  [x]
+  (or (pattern? x) (s/Str x)))
 
 (def Timestamp
   "Schema type for JodaTime timestamps"

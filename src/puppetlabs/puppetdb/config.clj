@@ -6,7 +6,8 @@
    and the format expected by the rest of the application."
   (:import [java.security KeyStore]
            [org.joda.time Minutes Days Period]
-           [java.util.regex PatternSyntaxException])
+           [java.util.regex
+            PatternSyntaxException])
   (:require [puppetlabs.i18n.core :refer [trs]]
             [clojure.tools.logging :as log]
             [puppetlabs.kitchensink.core :as kitchensink]
@@ -50,14 +51,7 @@
   [map-schema]
   (kitchensink/mapkeys s/optional-key map-schema))
 
-(defn blacklist-regex-pred [blist]
-  ;; pred to validate regex in the blacklist option
-  (try
-    (re-pattern blist)
-    (catch PatternSyntaxException e
-      (prn (:cause (Throwable->map e)))
-      false))
-  true)
+
 
 (comment
   (try
@@ -91,7 +85,7 @@
      :statements-cache-size (pls/defaulted-maybe s/Int 0)
      :connection-timeout (pls/defaulted-maybe s/Int 3000)
      :facts-blacklist (s/conditional string? String
-                                     sequential? [s/Str])
+                                     sequential? [(s/pred pls/valid-blacklist?)])
      ;; TODO will need to figure out what we want to call this
      :facts-blacklist-type (pls/defaulted-maybe String "regular")
      ;; :facts-blacklist-regex (s/pred blacklist-regex-pred)
@@ -227,6 +221,8 @@
   doesn't specify classname, subprotocol and subname, all of which are
   now required."
   [{db-config :database :or {db-config {}} :as config}]
+  (prn "*************")
+  (clojure.pprint/pprint config)
   ;; look at this for a way to mess with the config options
   (when (str/blank? (:subname db-config))
     (throw+
@@ -236,6 +232,49 @@
            "  The [database] section must contain an appropriate"
            " \"//host:port/database\" subname setting.")}))
   config)
+
+(defn check-fact-regex [fact]
+  ;; pred to validate regex in the blacklist option
+  (try
+    (re-pattern fact)
+    (catch PatternSyntaxException e
+      (:cause (Throwable->map e)))))
+
+
+(comment
+  (let [testy (->> ["f[act1" "f)act2" "fact3"]
+                   (map check-fact-regex))
+        pattern? #(= Pattern (type %))]
+
+    (if (every? pattern? testy)
+      true
+      (filter string? testy))
+    )
+  (apply str "1 " (interpose " " '("2" "3"))))
+
+;; at this point you don't have the converted schema yet so you'll just have a string and need to convert it yourself to check it
+;; maybe change the schema to take a list of regex patterns as well and change the convertion function if it is converted here
+(defn validate-facts-blacklist-regex
+  "Throws a {:type ::cli-error :message m} exception
+  describing errors when compiling facts-blacklist regex
+  patterns if :facts-blacklist-type is set to 'regex'."
+  [{db-config :database :or {db-config {}} :as config}]
+  (clojure.pprint/pprint config)
+  (if (= "regex" (:facts-blacklist-type db-config))
+    (let [facts-patterns (->> db-config
+                              :facts-blacklist
+                              pls/blacklist->vector
+                              (map check-fact-regex)
+                              vec)]
+      (if (every? pls/pattern? facts-patterns)
+        (assoc-in config [:database :facts-blacklist] facts-patterns)
+        (throw+
+         {:type ::cli-error
+          :message
+          (apply str "The following errors occured when compiling facts-blacklist regex patterns: "
+                (interpose " " (->> facts-patterns
+                                    (filter string?))))})))
+    config))
 
 (defn convert-section-config
   "validates and converts a `section-config` to `section-schema-out` using defaults from `section-schema-in`."
@@ -442,7 +481,8 @@
 (def adjust-and-validate-tk-config
   (comp add-web-routing-service-config
         warn-retirements
-        validate-db-settings))
+        validate-db-settings
+        validate-facts-blacklist-regex))
 
 (defn hook-tk-parse-config-data
   "This is a robert.hooke compatible hook that is designed to intercept
@@ -455,6 +495,8 @@
   "Accepts a map containing all of the user-provided configuration values
   and configures the various PuppetDB subsystems."
   [config]
+  (prn "CCCCCCCCCCCCCCCC")
+  (clojure.pprint/pprint config)
   (-> config
       configure-globals
       configure-developer
