@@ -248,13 +248,18 @@
   [q
    command-chan
    ^Semaphore write-semaphore
-   {:keys [command certname command-stream compression] :as command-req} :- queue/command-req-schema]
+   {:keys [command certname command-stream compression] :as command-req} :- queue/command-req-schema
+   sync-atom]
   (try
     (.acquire write-semaphore)
     (time! (get @metrics :message-persistence-time)
-           (let [cmd (queue/store-command q command-req)
-                 {:keys [id received]} cmd]
-             (async/>!! command-chan cmd)
+           (let [cmdref (queue/store-command q command-req)
+                 {:keys [id received]} cmdref
+                 sync-map (queue/make-sync-atom-map cmdref)]
+             ;; add update to sync-atom here
+             (when sync-map
+               (swap! sync-atom conj sync-map))
+             (async/>!! command-chan cmdref)
              (log/debug (trs "[{0}-{1}] ''{2}'' command enqueued for {3}"
                              id
                              (tcoerce/to-long received)
@@ -480,11 +485,14 @@
 
 (defn discard-message
   "Discards the given `cmdref` caused by `ex`"
-  [cmdref ex q dlo]
+  [cmdref ex q dlo sync-atom]
   (-> cmdref
       (queue/cons-attempt ex)
       (dlo/discard-cmdref q dlo))
-  (let [{:keys [command version]} cmdref]
+  (let [{:keys [command version]} cmdref
+        sync-map (queue/make-sync-atom-map cmdref)]
+    (when sync-map
+      (swap! sync-atom disj sync-map))
     (mark-both-metrics! command version :discarded)
     (update-counter! :depth command version dec!)))
 
@@ -492,9 +500,12 @@
   "Processes a command ref marked for deletion. This is similar to
   processing a non-delete cmdref except different metrics need to be
   updated to indicate the difference in command"
-  [{:keys [command version] :as cmdref} q scf-write-db response-chan stats]
+  [{:keys [command version] :as cmdref} q scf-write-db response-chan stats sync-atom
+   sync-map (queue/make-sync-atom-map cmdref)]
   (process-command-and-respond! cmdref scf-write-db response-chan stats)
   (queue/ack-command q {:entry (queue/cmdref->entry cmdref)})
+  (when sync-map
+    (swap! sync-atom disj sync-map))
   (update-counter! :depth command version dec!)
   (update-counter! :invalidated command version dec!))
 
@@ -502,9 +513,10 @@
   "Parses, processes and acknowledges a successful command ref and
   updates the relevant metrics. Any exceptions that arise are
   unhandled and expected to be caught by the caller."
-  [cmdref q scf-write-db response-chan stats blacklist-config]
+  [cmdref q scf-write-db response-chan stats blacklist-config sync-atom]
   (let [{:keys [command version] :as cmd} (queue/cmdref->cmd q cmdref)
-        retries (count (:attempts cmdref))]
+        retries (count (:attempts cmdref))
+        sync-map (queue/make-sync-atom-map cmdref)]
     (if-not cmd
       ;; Queue file is missing
       (let [{:keys [command version]} cmdref]
@@ -527,7 +539,10 @@
          (mark-both-metrics! command version :processed))
 
         (queue/ack-command q cmd)
-        (update-counter! :depth command version dec!)))))
+        (do
+          (when sync-map
+            (swap! sync-atom disj sync-map))
+          (update-counter! :depth command version dec!))))))
 
 (def command-delay-ms (* 1000 60 60))
 
@@ -570,10 +585,9 @@
   that fail via (delay-message msg), and discarding messages that have
   fatal errors or have exceeded their maximum allowed attempts."
   [q command-chan dlo delay-pool scf-write-db response-chan stats
-   blacklist-config stop-status]
+   facts-blacklist stop-status sync-atom]
   (fn [{:keys [certname command version received delete? id] :as cmdref}]
     (try+
-
      (when received
        (let [q-time (-> (fmt-time/parse iso-formatter received)
                         (time/interval (time/now))
@@ -583,17 +597,18 @@
          (update! (cmd-metric command version :queue-time) q-time)))
 
      (if delete?
-       (process-delete-cmdref cmdref q scf-write-db response-chan stats)
+       (process-delete-cmdref cmdref q scf-write-db response-chan stats sync-atom)
        (let [retries (count (:attempts cmdref))]
          (try+
-          (process-cmdref cmdref q scf-write-db response-chan stats blacklist-config)
+          (process-cmdref cmdref q scf-write-db response-chan stats facts-blacklist sync-atom)
           (catch fatal? obj
             (mark! (global-metric :fatal))
             (let [ex (:cause obj)]
               (log/error
                (:wrapper &throw-context)
                (trs "[{0}] [{1}] Fatal error on attempt {2} for {3}" id command retries certname))
-              (discard-message cmdref ex q dlo)))
+              ;; is there a cleaner way to pass around this atom and make sure the right thing happens in all these cases???
+              (discard-message cmdref ex q dlo sync-atom)))
           (catch Exception _
             (let [ex (:throwable &throw-context)]
               (mark-both-metrics! command version :retried)
@@ -608,13 +623,13 @@
                   (log/error
                    ex
                    (trs "[{0}] [{1}] Exceeded max attempts ({2}) for {3}" id command retries certname))
-                  (discard-message cmdref ex q dlo))))))))
+                  (discard-message cmdref ex q dlo sync-atom))))))))
 
      (catch [:kind ::queue/parse-error] _
        (mark! (global-metric :fatal))
        (log/error (:wrapper &throw-context)
                   (trs "Fatal error parsing command: {0}" (:id cmdref)))
-       (discard-message cmdref (:throwable &throw-context) q dlo)))))
+       (discard-message cmdref (:throwable &throw-context) q dlo sync-atom)))))
 
 (def stop-commands-wait-ms (constantly 5000))
 
@@ -652,7 +667,7 @@
              :stop-status (atom {:executing-delayed 0}))))
 
   (start [this context]
-    (let [{:keys [scf-write-db dlo q]} (shared-globals)
+    (let [{:keys [scf-write-db dlo q sync-atom]} (shared-globals)
           {:keys [response-chan response-pub]} context
 
           ;; From mq_listener
@@ -670,7 +685,8 @@
                                           :database
                                           (select-keys [:facts-blacklist
                                                         :facts-blacklist-type]))
-                                      (:stop-status context))]
+                                      (:stop-status context)
+                                      sync-atom)]
 
       (doto (Thread. (fn []
                        (try+ (gtp/dochan command-threadpool handle-cmd command-chan)
@@ -715,13 +731,14 @@
                    (enqueue-command this command version certname producer-ts command-stream compression identity))
 
   (enqueue-command [this command version certname producer-ts command-stream compression command-callback]
-    (let [config (get-config)
-          q (:q (shared-globals))
-          command-chan (:command-chan (shared-globals))
-          write-semaphore (:write-semaphore (service-context this))
-          command (if (string? command) command (command-names command))
-          command-req (queue/create-command-req command version certname producer-ts compression command-callback command-stream)
-          result (do-enqueue-command q command-chan write-semaphore command-req)]
+   (let [config (get-config)
+         globals (shared-globals)
+         q (:q globals)
+         command-chan (:command-chan globals)
+         write-semaphore (:write-semaphore (service-context this))
+         command (if (string? command) command (command-names command))
+         command-req (queue/create-command-req command version certname producer-ts compression command-callback command-stream)
+         result (do-enqueue-command q command-chan write-semaphore command-req (:sync-atom globals))]
       ;; Obviously assumes that if do-* doesn't throw, msg is in
       (inc-cmd-depth command version)
       (swap! (:stats (service-context this)) update :received-commands inc)

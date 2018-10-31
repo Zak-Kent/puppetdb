@@ -400,6 +400,15 @@
    ;; to get rid of it somehow when we refactor mq-listener and command.clj.
    (SortedCommandBuffer. (TreeMap.) (HashMap.) n delete-update-fn)))
 
+(defn make-sync-atom-map [cmdref]
+  "given a CommandRef return a map suitable for use in the sync-atom"
+  ;; TODO make doc string better
+  (let [{:keys [command certname producer-ts]} cmdref
+        sync-entity (keyword (second (str/split command #" ")))]
+    ;; the sync-configs map has the entity names as plurals
+    (when producer-ts
+      {:entity sync-entity :certname certname :producer-ts producer-ts})))
+
 (defn message-loader
   "Returns a function that will enqueue existing stockpile messages to
   `command-chan`. Messages with ids less than `message-id-ceiling`
@@ -407,7 +416,7 @@
   when new commands are enqueued before all existing commands have
   been enqueued. Note that there is no guarantee on the enqueuing
   order of commands read from stockpile's reduce function"
-  [q message-id-ceiling]
+  [q message-id-ceiling sync-atom]
   (fn [command-chan update-metrics]
     (stock/reduce q
                   (fn [chan entry]
@@ -415,7 +424,11 @@
                     ;;enqueued in the same directory before we've
                     ;;read all existing files
                     (when (< (stock/entry-id entry) message-id-ceiling)
-                      (let [{:keys [command version] :as cmdref} (entry->cmdref entry)]
+                      (let [{:keys [command version] :as cmdref} (entry->cmdref entry)
+                            sync-map (make-sync-atom-map cmdref)]
+                        ;; don't add tracking for commands that don't have a producer-ts to the atom, we'll always want to enqueue these commands
+                        (when sync-map
+                          (swap! sync-atom conj sync-map))
                         (async/>!! chan cmdref)
                         (update-metrics command version)))
                     chan)
@@ -424,12 +437,12 @@
 (defn create-or-open-stockpile
   "Opens an existing stockpile queue if one is present otherwise
   creates a new stockpile queue at `queue-dir`"
-  [queue-dir]
+  [queue-dir sync-atom]
   (let [stockpile-root (kitchensink/absolute-path queue-dir)
         queue-path (get-path stockpile-root "cmd")]
     (if-let [q (and (Files/exists queue-path (make-array LinkOption 0))
                     (stock/open queue-path))]
-      [q (message-loader q (stock/next-likely-id q))]
+      [q (message-loader q (stock/next-likely-id q) sync-atom)]
       (do
         (Files/createDirectories (get-path stockpile-root)
                                  (make-array FileAttribute 0))

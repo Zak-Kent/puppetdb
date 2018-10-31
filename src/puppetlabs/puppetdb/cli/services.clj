@@ -430,7 +430,9 @@
                          (queue/sorted-command-buffer
                           max-enqueued
                           #(cmd/update-counter! :invalidated %1 %2 inc!)))
-          [q load-messages] (queue/create-or-open-stockpile (conf/stockpile-dir config))
+          ;; maybe create atom here and pass to stockpile startup and global-configs
+          sync-atom (atom #{})
+          [q load-messages] (queue/create-or-open-stockpile (conf/stockpile-dir config) sync-atom)
           globals {:scf-read-db read-db
                    :scf-write-db write-db
                    :pretty-print pretty-print
@@ -438,7 +440,8 @@
                    :dlo (dlo/initialize (get-path stockdir "discard")
                                         (get-in metrics-registries
                                                 [:dlo :registry]))
-                   :command-chan command-chan}
+                   :command-chan command-chan
+                   :sync-atom sync-atom}
           clean-lock (ReentrantLock.)
           command-loader (when load-messages
                            (future

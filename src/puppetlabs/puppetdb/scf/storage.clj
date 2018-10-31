@@ -762,6 +762,7 @@
    received-timestamp :- pls/Timestamp]
   (inc! (:updated-catalog performance-metrics))
   (time! (:add-new-catalog performance-metrics)
+         ;; why do we have this in a let block if we never use the catalog-id value???
          (let [catalog-id (:id (add-catalog-metadata! hash catalog received-timestamp))]
            (update-catalog-associations! certname-id catalog refs-to-hashes))))
 
