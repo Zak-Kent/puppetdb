@@ -710,6 +710,8 @@
   (enqueue-command [this command version certname producer-ts command-stream compression command-callback]
     (let [config (get-config)
           q (:q (shared-globals))
+          _ (prn "PPPPPPPPPPPPPP")
+          _ (prn producer-ts)
           command-chan (:command-chan (shared-globals))
           write-semaphore (:write-semaphore (service-context this))
           command (if (string? command) command (command-names command))
