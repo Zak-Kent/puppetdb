@@ -1,6 +1,7 @@
 require 'cgi'
 require 'beaker/dsl/install_utils'
 require 'beaker/dsl/helpers'
+require 'beaker-puppet'
 require 'open3'
 require 'pp'
 require 'set'

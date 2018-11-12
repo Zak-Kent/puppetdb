@@ -23,6 +23,7 @@ end
 gem 'facter'
 gem 'rake'
 gem 'packaging', *location_for(ENV['PACKAGING_VERSION'] || '~> 0.99')
+gem 'beaker-puppet', '~> 1.0'
 
 group :test do
   # Add test-unit for ruby 2.2+ support (has been removed from stdlib)
@@ -66,7 +67,7 @@ if ENV['NO_ACCEPTANCE'] != 'true'
       gem 'beaker', *location_for(beaker_version)
     else
       # use the pinned version
-      gem 'beaker', '~> 3.4'
+      gem 'beaker', '~> 4.1'
     end
   end
   gem 'beaker-hostgenerator', '1.1.13'
