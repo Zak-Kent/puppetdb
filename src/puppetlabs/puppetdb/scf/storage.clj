@@ -1120,41 +1120,65 @@
                        fact-json-updates)
                       ["id=?" factset_id])))))
 
-(defn delete-unused-fact-paths []
+(defn delete-unused-fact-paths-laterally []
   "Deletes paths from fact_paths that are no longer needed by any
   factset.  In the unusual case where a path changes type, the
   previous version will linger."
   (jdbc/do-commands
-   ["with recursive live_paths(key, path, value) as"
-    "  (select key, key as path, value"
-    "     from (select (jsonb_each(stable||volatile)).*"
-    "             from factsets) as base_case"
-    "   union all"
-    "   select sub_path as key,"
-    "          sub_paths.path||'#~'||sub_path as path,"
-    "          sub_value as value"
-    "     from (select *"
-    "             from (select path,"
-    "                          case jsonb_typeof(value)"
-    "                            when 'object'"
-    "                              then (jsonb_each(value)).key"
-    "                            when 'array'"
-    "                              then generate_series(0, jsonb_array_length(value - 1))::text"
-    "                            end"
-    "                            as sub_path,"
-    "                          case jsonb_typeof(value)"
-    "                            when 'object'"
-    "                              then (jsonb_each(value)).value"
-    "                            when 'array'"
-    "                              then jsonb_array_elements(value)"
-    "                          end"
-    "                          as sub_value"
-    "                     from live_paths) as candidates"
-    "             where candidates.sub_path is not null)"
-    "               as sub_paths)"
-    "  delete from fact_paths fp"
-    "    where not exists (select 1 from live_paths"
-    "                        where live_paths.path = fp.path)"]))
+   ["with recursive live_paths(path, value) as"
+    "   (select key as path, value"
+    "      from (select (jsonb_each(stable||volatile)).* from factsets) as base_case"
+    "      union"
+    "        select path||'#~'||sub_level.key as path,"
+    "               sub_level.value"
+    "          from live_paths,"
+    "          lateral (select *"
+    "                     from (select (jsonb_each(value)).*"
+    "                             where jsonb_typeof(value) = 'object') as sub_fields"
+    "                     union (select generate_series(0, jsonb_array_length(value - 1))::text as key,"
+    "                                   jsonb_array_elements(value) as value"
+    "                              where jsonb_typeof(value) = 'array')) as sub_level)"
+    "   delete from fact_paths fp"
+    "     where not exists (select 1 from live_paths"
+    "                         where live_paths.path = fp.path)"]))
+
+(defn delete-unused-fact-paths-via-temp-table []
+  "Deletes paths from fact_paths that are no longer needed by any
+  factset.  In the unusual case where a path changes type, the
+  previous version will linger."
+  (jdbc/do-commands
+   ["with recursive live_paths(path, value) as"
+    "   (select key as path, value"
+    "      from (select (jsonb_each(stable||volatile)).* from factsets) as base_case"
+    "      union"
+    "        select path||'#~'||sub_level.key as path,"
+    "               sub_level.value"
+    "          from live_paths,"
+    "          lateral (select *"
+    "                     from (select (jsonb_each(value)).*"
+    "                             where jsonb_typeof(value) = 'object') as sub_fields"
+    "                     union (select generate_series(0, jsonb_array_length(value - 1))::text as key,"
+    "                                   jsonb_array_elements(value) as value"
+    "                              where jsonb_typeof(value) = 'array')) as sub_level)"
+    "   select path into temp tmp_live_paths from live_paths"]
+
+   "analyze tmp_live_paths"
+
+   ["delete from fact_paths fp"
+    "  where not exists (select 1 from tmp_live_paths"
+    "                      where tmp_live_paths.path = fp.path)"]
+
+   "drop table tmp_live_paths"))
+
+(def delete-unused-fact-paths
+  (if (System/getenv "PDB_TEST_PATH_GC_VIA_TEMP_TABLE")
+    delete-unused-fact-paths-via-temp-table
+    delete-unused-fact-paths-laterally))
+
+(if (= delete-unused-fact-paths delete-unused-fact-paths-laterally)
+  (binding [*out* *err*] (println "Pruning fact paths without temp table"))
+  (binding [*out* *err*] (println "Oruning fact paths via temp table")))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Reports
