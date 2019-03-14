@@ -55,7 +55,8 @@ unless (test_config[:skip_presuite_provisioning])
             on database, "apt-get install -y rake unzip openjdk-8-jre-headless"
           end
         when :redhat
-          on database, "yum install -y java-1.7.0-openjdk rubygem-rake unzip"
+          # somehow this didn't fail before with jdk 1.7.0 but now it does, and needs to be 1.8.0
+          on database, "yum install -y java-1.8.0-openjdk rubygem-rake unzip"
         when :fedora
           on database, "yum install -y java-1.7.0-openjdk rubygem-rake unzip"
         else
@@ -103,9 +104,15 @@ unless (test_config[:skip_presuite_provisioning])
           on master, "yum install -y rubygems ruby-sqlite3 rubygem-activerecord"
         else
           # EL7 very much matches what Fedora 20 uses
-          on master, "yum install -y rubygems rubygem-sqlite3"
+          on master, "echo \"ahahahhahaha\""
+          # on master, "yum install -y rubygems rubygem-sqlite3"
+          # rubygem-sqlite3 doesn't exist on rhel-8, so might need to get it another way
+          on master, "yum install -y rubygems"
           on master, "gem install activerecord -v 3.2.17 --no-ri --no-rdoc -V --backtrace"
         end
+
+
+
       when :fedora
         # This was really set with Fedora 20 in mind, later versions might differ
         on master, "yum install -y rubygems rubygem-sqlite3"
