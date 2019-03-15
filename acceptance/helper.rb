@@ -272,7 +272,12 @@ module PuppetDBExtensions
 
   def oldest_supported
     # account for special case where bionic doesn't have builds before 5.2.4
-    return is_bionic ? '5.2.4' : '5.1.1'
+
+    # comment this stuff out as a quick hack cause rhel-8 doesn't have 4.2.3.8 builds
+    # return is_bionic ? '5.2.4' : '4.2.3.8'
+
+    return '6.3.0.SNAPSHOT.2019.03.15T0707'
+
   end
 
   def get_testing_branch(version)
@@ -327,6 +332,8 @@ module PuppetDBExtensions
       "#{version}.el6"
     elsif host['platform'].include?('el-7')
       "#{version}.el7"
+    elsif host['platform'].include?('el-8')
+      "#{version}.el8"
     elsif host['platform'].include?('fedora')
       version_tag = host['platform'].match(/^fedora-(\d+)/)[1]
       "#{version}.fc#{version_tag}"
