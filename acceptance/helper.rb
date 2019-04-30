@@ -287,7 +287,7 @@ module PuppetDBExtensions
 
   def get_testing_branch(version)
     branch_name = /^((?:\d+\.)*)\d+/.match(version)[1] + 'x'
-    if branch_name.chars.first.to_i > 5
+    if branch_name.chars.first.to_i == 6 && branch_name.chars[2].to_i > 3
       branch_name = 'master'
     end
     return branch_name
