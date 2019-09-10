@@ -93,6 +93,7 @@
    certname :- s/Str
    facts-version :- s/Int
    fact-payload]
+  (prn (format "inside submit facts command name: %s" (command-names :replace-facts)))
   (let [result  (submit-command-via-http!
                   base-url
                   certname

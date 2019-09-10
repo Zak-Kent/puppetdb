@@ -105,6 +105,7 @@
 ;;         :queue-time <histogram>
 ;;         :retry-counts <histogram>
 ;;         :size <histogram>
+;;         :bashed <counter>
 ;;        }
 ;;      "command name"
 ;;        {<version number>
@@ -115,6 +116,7 @@
 ;;            :discarded <meter>
 ;;            :processing-time <timer>
 ;;            :retry-counts <histogram>
+;;            :bashed <counter>
 ;;           }
 ;;        }
 ;;     }
@@ -139,6 +141,7 @@
 ;; * `:invalidated`: commands marked as delete?, caused by a newer command
 ;;                   was enqueued that will overwrite an existing one in the queue
 ;; * `:depth`: number of commands currently enqueued
+;; * `:bashed`: number of commands which have been "bashed" in the command queue
 ;;
 
 (def mq-metrics-registry (get-in metrics/metrics-registries [:mq :registry]))
@@ -158,7 +161,8 @@
      :fatal (meter mq-metrics-registry (to-metric-name-fn :fatal))
      :retried (meter mq-metrics-registry (to-metric-name-fn :retried))
      :awaiting-retry (counter mq-metrics-registry (to-metric-name-fn :awaiting-retry))
-     :discarded (meter mq-metrics-registry (to-metric-name-fn :discarded))}))
+     :discarded (meter mq-metrics-registry (to-metric-name-fn :discarded))
+     :bashed (counter mq-metrics-registry (to-metric-name-fn :bashed))}))
 
 (def metrics
   (atom {:command-parse-time (timer mq-metrics-registry

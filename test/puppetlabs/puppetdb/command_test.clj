@@ -149,6 +149,12 @@
       meters/rates
       :total))
 
+(defn bashed-count []
+;; will need something like what's above
+  (-> (counters/counter (get-in metrics-registries [:mq :registry])
+                        ["global" "bashed"])
+      counters/value))
+
 (defn failed-catalog-req [version certname payload]
   (queue/create-command-req "replace catalog" version certname nil "" identity
                             (tqueue/coerce-to-stream payload)))
@@ -1499,6 +1505,10 @@
           ;; make sure the second command has a later timestamp
           (Thread/sleep 200)
           (client/submit-facts base-url "foo.com" 5 (assoc facts :producer_timestamp (str (now))))
+
+          ;; assert :bashed metric has been updated for the "bashed" command
+          (is (= 1 (bashed-count)))
+
           ;; allow pdb to process messages
           (deliver go-ahead-and-execute true)
 

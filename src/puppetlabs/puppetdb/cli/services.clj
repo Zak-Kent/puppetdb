@@ -468,7 +468,8 @@
               command-chan (async/chan
                             (queue/sorted-command-buffer
                              (:max-enqueued developer)
-                             #(cmd/update-counter! :invalidated %1 %2 inc!)))
+                             #(cmd/update-counter! :invalidated %1 %2 inc!)
+                             #(cmd/update-counter! :bashed %1 %2 inc!)))
               [q load-messages] (queue/create-or-open-stockpile (conf/stockpile-dir config)
                                                                 maybe-send-cmd-event!
                                                                 cmd-event-ch)
