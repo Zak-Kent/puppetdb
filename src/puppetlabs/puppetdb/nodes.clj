@@ -40,6 +40,10 @@
    :expires_facts (s/maybe s/Bool)
    :expires_facts_updated (s/maybe pls/Timestamp)})
 
+(def deactivate-node-wireformat-schema
+  {:certname s/Str
+   (s/optional-key :producer_timestamp) (s/maybe pls/Timestamp)})
+
 (pls/defn-validated nodes-query->configure-expiration-wire-v1
   :- [configure-expiration-wireformat-schema]
   [nodes :- [nodes-wireformat-schema]]
