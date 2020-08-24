@@ -293,7 +293,7 @@ module PuppetDBExtensions
   end
 
   def get_testing_branch(version)
-    branch_name = /^((?:\d+\.)*)\d+/.match(version)[1] + 'x'
+    branch_name = '5.2.15-hotfix' # /^((?:\d+\.)*)\d+/.match(version)[1] + 'hotfix'
     if branch_name.chars.first.to_i > 5
       branch_name = 'master'
     end
