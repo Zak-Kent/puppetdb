@@ -22,6 +22,7 @@
             [puppetlabs.puppetdb.schema :as pls]
             [puppetlabs.puppetdb.utils :as utils]
             [puppetlabs.puppetdb.query-eng.engine :as eng]
+            [clj-http.client :as http-client]
             [schema.core :as s])
   (:import (clojure.lang ExceptionInfo)
            (org.postgresql.util PGobject)
@@ -224,6 +225,18 @@
                   :else entity)]
      {:query query :remaining-query remaining-query :entity entity :query-options query-options})))
 
+(defn active-hikari-connections []
+  "Hit the PDBReadPool metrics and return infomation about active connections"
+  (let [url "http://127.0.0.1:8080/metrics/v2/read/puppetlabs.puppetdb.database:name=PDBReadPool.pool.ActiveConnections"]
+    ;; account for race with connection being used and mertics being updated
+    (Thread/sleep 1000)
+    (-> (http-client/get url {:throw-exceptions false
+                              :content-type :json
+                              :character-encoding "UTF-8"
+                              :accept :json})
+        :body
+        (json/parse-string true))))
+
 (pls/defn-validated produce-streaming-body
   "Given a query, and database connection, return a Ring response with
    the query results. query-map is a clojure map of the form
@@ -241,6 +254,14 @@
 
     (try
       (jdbc/with-transacted-connection scf-read-db
+
+        (let [pid (jdbc/query-to-vec "select pg_backend_pid()")]
+          (prn "inside the outer with-transacted-connection form:")
+          (prn (format "pg_backend_pid: %s" pid))
+          (prn "number of active connections:")
+          (clojure.pprint/pprint (active-hikari-connections))
+          (newline))
+
         (let [munge-fn (get-munge-fn entity version query-options url-prefix)
               {:keys [results-query count-query]} (-> remaining-query
                                                       coerce-from-json
@@ -249,6 +270,14 @@
               resp (http/streamed-response
                     buffer
                     (try (jdbc/with-transacted-connection scf-read-db
+
+                           (let [pid (jdbc/query-to-vec "select pg_backend_pid()")]
+                             (prn "inside the inner with-transacted-connection form:")
+                             (prn (format "pg_backend_pid: %s" pid))
+                             (prn "number of active connections:")
+                             (clojure.pprint/pprint (active-hikari-connections))
+                             (newline))
+
                            (jdbc/call-with-array-converted-query-rows
                             results-query
                             (comp #(http/stream-json % buffer pretty-print)

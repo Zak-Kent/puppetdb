@@ -384,8 +384,13 @@
   [version]
   (fn [{:keys [params globals puppetdb-query]}]
     (let [query-options (narrow-globals globals)]
-      (if (and (:ast_only puppetdb-query) (valid-query? (:scf-read-db globals) version puppetdb-query query-options))
-        (http/json-response (:query puppetdb-query))
-        (qeng/produce-streaming-body version
-                                (validate-distinct-options! (merge (keywordize-keys params) puppetdb-query))
-                                query-options)))))
+      (let [outy (if (and (:ast_only puppetdb-query) (valid-query? (:scf-read-db globals) version puppetdb-query query-options))
+                   (http/json-response (:query puppetdb-query))
+                   (qeng/produce-streaming-body version
+                                                (validate-distinct-options! (merge (keywordize-keys params) puppetdb-query))
+                                                query-options))]
+
+        (prn "Inside top level query handler which calls produce-streaming-body")
+        (prn "Number of connections after exiting both with-transacted-connection forms:")
+        (clojure.pprint/pprint (qeng/active-hikari-connections))
+        outy))))
