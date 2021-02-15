@@ -185,6 +185,11 @@
                         ["global" "ignored"])
       counters/value))
 
+(defn concurrent-depth []
+  (-> (counters/counter (get-in metrics-registries [:mq :registry])
+                        ["global" "concurrent-depth"])
+      counters/value))
+
 (defn failed-catalog-req [version certname payload]
   (queue/create-command-req "replace catalog" version certname nil "" identity
                             (tqueue/coerce-to-stream payload)))
@@ -1829,6 +1834,67 @@
                "Waited up to 5 seconds for 3 acknowledgement results")
 
            (is (= [nil nil nil] @ack-results))))))))
+
+(deftest concurrent-depth-metrics-update
+  (with-test-db
+    (svc-utils/call-with-puppetdb-instance
+      (assoc (svc-utils/create-temp-config)
+            :database *db*
+            :command-processing {:concurrent-writes 1})
+     (fn []
+       (let [dispatcher (get-service svc-utils/*server* :PuppetDBCommandDispatcher)
+             enqueue-command (partial enqueue-command dispatcher)
+             new-producer-ts (now)
+             base-cmd (get-in wire-catalogs [9 :basic])
+             semaphore (:write-semaphore (service-context dispatcher))
+             cmd-1 (promise)
+             cmd-2 (promise)
+             cmd-3 (promise)]
+
+         (testing "should drain semaphore resources"
+           (is (= 1 (.drainPermits semaphore))))
+
+           (future (enqueue-command (command-names :replace-catalog)
+                            9
+                            "foo.com"
+                            nil
+                            (->  base-cmd
+                                 (assoc :producer_timestamp new-producer-ts
+                                        :certname "foo.com")
+                                 tqueue/coerce-to-stream)
+                            ""
+                            #(deliver cmd-1 %)))
+
+           (future (enqueue-command (command-names :replace-catalog)
+                            9
+                            (:certname base-cmd)
+                            nil
+                            (-> base-cmd
+                                (assoc :producer_timestamp new-producer-ts)
+                                tqueue/coerce-to-stream)
+                            ""
+                            #(deliver cmd-2 %)))
+
+           (future (enqueue-command (command-names :replace-catalog)
+                            9
+                            (:certname base-cmd)
+                            nil
+                            (-> base-cmd
+                                (assoc :producer_timestamp new-producer-ts)
+                                tqueue/coerce-to-stream)
+                            ""
+                            #(deliver cmd-3 %)))
+
+           (Thread/sleep 100)
+
+           (testing "concurrent-depth metric should be the number of commands"
+             (is (= 3 (concurrent-depth))))
+
+           (.release semaphore)
+           (Thread/sleep 100)
+
+           (testing "concurrent-depth metric should be 0"
+             (is (= 0 (concurrent-depth)))))))))
 
 (deftest missing-queue-files-accounted-for-in-stats
   ;; Use a lock to hold up command processing while we trash the
