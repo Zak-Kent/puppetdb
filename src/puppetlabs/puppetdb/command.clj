@@ -255,6 +255,9 @@
 
 ;; ## Command submission
 
+;; for testing via with-redefs
+(defn concurrent-depth-hook [])
+
 (defn-validated do-enqueue-command
   "Stores command in the q and returns its id."
   [q
@@ -264,6 +267,7 @@
    maybe-send-cmd-event!]
   (try
     (inc! (get @metrics :concurrent-depth))
+    (concurrent-depth-hook)
     (.acquire write-semaphore)
     (dec! (get @metrics :concurrent-depth))
     (time! (get @metrics :message-persistence-time)

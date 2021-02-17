@@ -75,7 +75,7 @@
   (:import
    (clojure.lang ExceptionInfo)
    (java.nio.file Files)
-   (java.util.concurrent TimeUnit)
+   (java.util.concurrent TimeUnit CountDownLatch)
    (java.sql SQLException)
    (org.joda.time DateTime DateTimeZone)))
 
@@ -1843,58 +1843,55 @@
             :command-processing {:concurrent-writes 1})
      (fn []
        (let [dispatcher (get-service svc-utils/*server* :PuppetDBCommandDispatcher)
-             enqueue-command (partial enqueue-command dispatcher)
              new-producer-ts (now)
              base-cmd (get-in wire-catalogs [9 :basic])
              semaphore (:write-semaphore (service-context dispatcher))
-             cmd-1 (promise)
-             cmd-2 (promise)
-             cmd-3 (promise)]
+             enqueue-catalog (fn []
+                               (enqueue-command
+                                dispatcher
+                                (command-names :replace-catalog)
+                                9
+                                (:certname base-cmd)
+                                                nil
+                                                (->  base-cmd
+                                                     (assoc :producer_timestamp new-producer-ts)
+                                                     tqueue/coerce-to-stream)
+                                                ""))
+             ;; see comment below about race with this approach
+             ;; orig-do-enqueue-command cmd/do-enqueue-command
+
+             cmds-enqueued (CountDownLatch. 3)]
 
          (testing "should drain semaphore resources"
            (is (= 1 (.drainPermits semaphore))))
 
-           (future (enqueue-command (command-names :replace-catalog)
-                            9
-                            "foo.com"
-                            nil
-                            (->  base-cmd
-                                 (assoc :producer_timestamp new-producer-ts
-                                        :certname "foo.com")
-                                 tqueue/coerce-to-stream)
-                            ""
-                            #(deliver cmd-1 %)))
+         (with-redefs [
+                       ;; this approach still had a race in it which required a sleep
+                       ;; cmd/do-enqueue-command (fn [& args]
+                       ;;                          (.countDown cmds-enqueued)
+                       ;;                          (apply orig-do-enqueue-command args))
+                       cmd/concurrent-depth-hook (fn []
+                                                   (.countDown cmds-enqueued))]
 
-           (future (enqueue-command (command-names :replace-catalog)
-                            9
-                            (:certname base-cmd)
-                            nil
-                            (-> base-cmd
-                                (assoc :producer_timestamp new-producer-ts)
-                                tqueue/coerce-to-stream)
-                            ""
-                            #(deliver cmd-2 %)))
+           (let [cmd-1 (utils/noisy-future (enqueue-catalog))
+                 cmd-2 (utils/noisy-future (enqueue-catalog))
+                 cmd-3 (utils/noisy-future (enqueue-catalog))]
 
-           (future (enqueue-command (command-names :replace-catalog)
-                            9
-                            (:certname base-cmd)
-                            nil
-                            (-> base-cmd
-                                (assoc :producer_timestamp new-producer-ts)
-                                tqueue/coerce-to-stream)
-                            ""
-                            #(deliver cmd-3 %)))
+             (.await cmds-enqueued default-timeout-ms TimeUnit/MILLISECONDS)
 
-           (Thread/sleep 100)
+             (testing "concurrent-depth metric should be the number of commands"
+               (is (= 3 (concurrent-depth))))
 
-           (testing "concurrent-depth metric should be the number of commands"
-             (is (= 3 (concurrent-depth))))
+             (.release semaphore)
 
-           (.release semaphore)
-           (Thread/sleep 100)
+             ;; there may be a better way to write this
+             (when (some #(= :timeout %)
+                         (map #(deref % default-timeout-ms :timeout)
+                              [cmd-1 cmd-2 cmd-3]))
+               (throw (Exception. "timed out waiting to enqueue command"))))
 
            (testing "concurrent-depth metric should be 0"
-             (is (= 0 (concurrent-depth)))))))))
+             (is (= 0 (concurrent-depth))))))))))
 
 (deftest missing-queue-files-accounted-for-in-stats
   ;; Use a lock to hold up command processing while we trash the
