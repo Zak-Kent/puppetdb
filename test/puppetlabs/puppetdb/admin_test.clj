@@ -3,6 +3,7 @@
             [puppetlabs.puppetdb.cli.services :refer :all]
             [puppetlabs.puppetdb.command :as command]
             [puppetlabs.puppetdb.command.constants :as cmd-consts]
+            [puppetlabs.puppetdb.config :refer :all]
             [puppetlabs.puppetdb.scf.storage-utils :as sutils]
             [puppetlabs.puppetdb.export :as export]
             [puppetlabs.puppetdb.import :as import]
@@ -14,7 +15,7 @@
             [puppetlabs.puppetdb.examples :as examples]
             [puppetlabs.puppetdb.testutils.reports :as tur]
             [puppetlabs.puppetdb.testutils.facts :as tuf]
-            [puppetlabs.puppetdb.testutils.db :refer [*db*]]
+            [puppetlabs.puppetdb.testutils.db :refer [*db* sample-db-config] :as db]
             [puppetlabs.puppetdb.testutils.cli
              :refer [get-nodes get-catalogs get-factsets get-reports munge-tar-map
                      example-catalog example-report
@@ -26,26 +27,84 @@
             [puppetlabs.puppetdb.testutils.services :as svc-utils]
             [puppetlabs.puppetdb.scf.storage :as scf-storage]
             [puppetlabs.puppetdb.testutils.catalog-inputs :refer [sample-input-cmds]]
-            [puppetlabs.puppetdb.time :refer [now days ago] :as time]))
+            [puppetlabs.puppetdb.time :refer [now days ago] :as time])
+  (:import
+    (java.time.format DateTimeFormatter)
+    (java.time ZonedDateTime ZoneId)))
 
 (use-fixtures :each tu/call-with-test-logging-silenced)
 
+(defn update-timestamp [resource resource-list time]
+  (let [current-time  (time/to-date-time time)
+        index (.indexOf resource-list resource)
+        ; We need to preserve the order of the reports in example/reports
+        minus (time/minus current-time (time/parse-period (str (- 10 index) "s")))
+        timestamp (time/unparse (time/formatters :date-time) minus)
+        ]
+    (-> resource
+        (assoc :timestamp timestamp)
+        (update :events (fn [events]
+                                   (mapv #(assoc % :timestamp timestamp)
+                                         events)))
+        )
+    )
+  )
+
+(defn change-report-time
+  ([r time]
+  (change-report-time r time time))
+  ([r time time2]
+  ;; A *very* blunt instrument, only intended to work for now on
+  ;; example/reports.
+  (-> (assoc r
+             :producer_timestamp time2
+             :start_time time
+             :end_time time)
+      (update :logs #(mapv (fn [entry] (assoc entry :time time)) %))
+      (update :resources
+              (fn [resources]
+                (mapv
+                 (fn [res]
+                   (-> res
+                       (update-timestamp resources time)
+                 )) resources))))))
+
+(defn expected-report [current-time plan-report-ts]
+  (let [report-list (filter-reports [:and
+                   [:= :certname example-certname]
+                   [:null? :type false]])
+        timestamp (time/unparse (time/formatters :date-time) current-time)
+        expected-report (mapv (fn [res]
+                                (if (= (get res :type) "plan")
+                                  (change-report-time res timestamp plan-report-ts)
+                                  (change-report-time res timestamp)
+                                  )
+                                )
+                              report-list)]
+    expected-report
+    )
+  )
+
 (deftest test-basic-roundtrip
+  (db/with-test-db
   (let [export-out-file (tu/temp-file "export-test" ".tar.gz")
+        current-time (now)
         catalog-input-cmd (-> (sample-input-cmds)
                               (get "host-1")
                               (update :certname (constantly example-certname))
                               (update :producer_timestamp time/to-string))
-        plan-report-ts (-> 1 days ago time/to-string)
-        plan-report (assoc example-report :type "plan" :producer_timestamp plan-report-ts)]
 
+        plan-report-ts (-> 1 days ago time/to-string)
+        test-report (change-report-time example-report (time/unparse (time/formatters :date-time) current-time))
+        plan-report (assoc test-report :type "plan" :producer_timestamp (time/to-string plan-report-ts))
+        ]
     (svc-utils/call-with-single-quiet-pdb-instance
      (fn []
        (is (empty? (get-nodes)))
 
        (svc-utils/sync-command-post (svc-utils/pdb-cmd-url) example-certname
                                     "replace catalog" cmd-consts/latest-catalog-version example-catalog)
-       (let [report-with-duplicate-events (update-in example-report
+       (let [report-with-duplicate-events (update-in test-report
                                                      [:resources 0 :events]
                                                      (fn [events] (conj events (first events))))]
          ;; this will add a duplicate event into a report, which will then be dropped at the database
@@ -73,24 +132,20 @@
                                     "replace catalog inputs"
                                     cmd-consts/latest-catalog-inputs-version
                                     catalog-input-cmd)
-
        (is (= catalog-input-cmd
               (-> (svc-utils/pdb-cmd-url)
                   svc-utils/get-all-catalog-inputs
                   first)))
-
        (is (= (tuc/munge-catalog example-catalog)
               (tuc/munge-catalog (get-catalogs example-certname))))
-       (is (= [(tur/update-report-pe-fields example-report)
+       (is (= [(tur/update-report-pe-fields test-report)
                (tur/update-report-pe-fields plan-report)]
-              (filter-reports [:and
-                               [:= :certname example-certname]
-                               [:null? :type false]])))
+              (expected-report current-time plan-report-ts)))
        (is (= (tuf/munge-facts example-facts)
               (tuf/munge-facts (get-factsets example-certname))))
 
        (let [query-fn (partial query (tk-app/get-service svc-utils/*server* :PuppetDBServer))]
-         (export/export! export-out-file query-fn))))
+         (export/export! export-out-file query-fn))) )
 
     (svc-utils/call-with-single-quiet-pdb-instance
      (fn []
@@ -107,7 +162,7 @@
 
        (is (= (tuc/munge-catalog example-catalog)
               (tuc/munge-catalog (get-catalogs example-certname))))
-       (is (= [(tur/update-report-pe-fields example-report)
+       (is (= [(tur/update-report-pe-fields test-report)
                (tur/update-report-pe-fields plan-report)]
               (filter-reports [:and
                                [:= :certname example-certname]
@@ -125,12 +180,15 @@
        (is (= catalog-input-cmd
               (-> (svc-utils/pdb-cmd-url)
                   svc-utils/get-all-catalog-inputs
-                  first)))))))
+                  first))))))))
 
 (deftest test-anonymized-export
   (doseq [profile (keys anon/anon-profiles)]
     (let [export-out-file (tu/temp-file "export-test" ".tar.gz")
-          anon-out-file (tu/temp-file "anon-test" ".tar.gz")]
+          anon-out-file (tu/temp-file "anon-test" ".tar.gz")
+          current-time (now)
+          test-report (change-report-time example-report (time/unparse (time/formatters :date-time) current-time))
+          ]
 
       (svc-utils/call-with-single-quiet-pdb-instance
        (fn []
@@ -139,7 +197,7 @@
          (svc-utils/sync-command-post (svc-utils/pdb-cmd-url) example-certname
                                       "replace catalog" cmd-consts/latest-catalog-version example-catalog)
          (svc-utils/sync-command-post (svc-utils/pdb-cmd-url) example-certname
-                                      "store report" cmd-consts/latest-report-version example-report)
+                                      "store report" cmd-consts/latest-report-version test-report)
          (svc-utils/sync-command-post (svc-utils/pdb-cmd-url) example-certname
                                       "replace facts" cmd-consts/latest-facts-version example-facts)
 
@@ -153,7 +211,7 @@
 
          (is (= (tuc/munge-catalog example-catalog)
                 (tuc/munge-catalog (get-catalogs example-certname))))
-         (is (= [(tur/update-report-pe-fields example-report)]
+         (is (= [(tur/update-report-pe-fields test-report)]
                 (get-reports example-certname)))
          (is (= (tuf/munge-facts example-facts)
                 (tuf/munge-facts (get-factsets example-certname))))

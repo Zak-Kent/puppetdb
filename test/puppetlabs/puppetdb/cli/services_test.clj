@@ -49,9 +49,11 @@
             [puppetlabs.puppetdb.testutils.queue :as tqueue]
             [clojure.string :as str])
   (:import
-   [clojure.lang ExceptionInfo]
-   (java.util.concurrent CyclicBarrier TimeUnit)
-   [java.util.concurrent.locks ReentrantLock]))
+    [clojure.lang ExceptionInfo]
+    (java.util.concurrent CyclicBarrier TimeUnit)
+    [java.util.concurrent.locks ReentrantLock]
+    (java.time.format DateTimeFormatter)
+    (java.time ZonedDateTime ZoneId)))
 
 (deftest update-checking
   (let [config-map {:global {:product-name "puppetdb"
@@ -482,7 +484,9 @@
   (with-unconnected-test-db
     (let [config (-> (create-temp-config)
                      (assoc :database *db*)
-                     (assoc-in [:database :gc-interval] "0.01"))
+                     (assoc-in [:database :gc-interval] "0.01")
+                     (assoc-in [:database :report-ttl] "10d")
+                     (assoc-in [:database :resource-events-ttl] "10d"))
           store-report #(sync-command-post (svc-utils/pdb-cmd-url)
                                            example-certname
                                            "store report"
@@ -493,8 +497,18 @@
                             (let [result (f first?)]
                               (.await after-gc)
                               result))
-          log (atom [])]
-      (with-redefs [svcs/invoke-periodic-gc invoke-periodic]
+          log (atom [])
+          current-time (now)
+          six-days (.minus current-time (time/parse-period "6d"))
+          seven-days (.minus current-time (time/parse-period "7d"))
+          basic-date1 (time/unparse (time/formatters :basic-date) six-days)
+          basic-date2 (time/unparse (time/formatters :basic-date) seven-days)
+          iso_date1 (time/unparse (time/formatters :date-hour-minute-second) six-days)
+          iso_date2 (time/unparse (time/formatters :date-hour-minute-second) seven-days)
+          ago-mock (fn [_]
+                    (.minus current-time (time/parse-period "2d")))]
+      (with-redefs [svcs/invoke-periodic-gc invoke-periodic
+                    time/ago ago-mock]
         (call-with-puppetdb-instance
          config
          (fn []
@@ -502,18 +516,19 @@
              (with-logged-event-maps log
                ;; Wait for the first, full gc to finish.
                (.await after-gc)
-               (store-report "2011-01-01T12:00:01-03:00")
-               (store-report "2011-01-02T12:00:01-03:00")
+
+               (store-report (str iso_date1 "-03:00"))
+               (store-report (str iso_date2 "-03:00"))
 
                (let [report-parts (set (get-temporal-partitions "reports"))
                      event-parts (set (get-temporal-partitions "resource_events"))]
 
-                 (is (subset? #{{:table "reports_20110101z", :part "20110101z"}
-                                {:table "reports_20110102z", :part "20110102z"}}
+                 (is (subset? #{{:table (str "reports_" basic-date1 "z"), :part (str basic-date1 "z")}
+                                {:table (str "reports_" basic-date2 "z"), :part (str basic-date2 "z")}}
                               report-parts))
 
-                 (is (subset? #{{:table "resource_events_20110101z", :part "20110101z"}
-                                {:table "resource_events_20110102z", :part "20110102z"}}
+                 (is (subset? #{{:table (str "resource_events_" basic-date1 "z"), :part (str basic-date1 "z")}
+                                {:table (str "resource_events_" basic-date2 "z"), :part (str basic-date2 "z")}}
                               event-parts))
 
                  ;; these queries will sleep in front of the next GC preventing it from getting
