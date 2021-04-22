@@ -13,7 +13,9 @@
     :refer [*server* with-pdb-with-no-gc]]
    [puppetlabs.puppetdb.time :as tc :refer [now parse-wire-datetime]]
    [puppetlabs.puppetdb.utils :as utils]
-   [puppetlabs.trapperkeeper.app :refer [get-service]]))
+   [puppetlabs.trapperkeeper.app :refer [get-service]]
+   [puppetlabs.puppetdb.command.constants :as cmd-consts]
+   [puppetlabs.puppetdb.testutils.cli :refer [example-report]]))
 
 (deftest test-node-ttl
   (tu/with-coordinated-fn run-purge-nodes puppetlabs.puppetdb.cli.services/purge-nodes!
@@ -182,3 +184,28 @@
        (fn []
          (Thread/sleep 1500)
          (is (not (called? puppetlabs.puppetdb.cli.services/purge-nodes!))))))))
+
+(deftest test-expired-resource-events-filtering
+  ;; these testing macros will setup a pdb instance that allows you to control
+  ;; the config. We could use this to test the resource-event filtering by
+  ;; changing the timestamps for some of the resources in the report and then
+  ;; assert that those older ones were filted out like we expect.
+  (with-test-db
+    (svc-utils/call-with-puppetdb-instance
+     (-> (svc-utils/create-temp-config)
+         (assoc :database *db*)
+         (assoc-in [:database :node-ttl] "0s")
+         ;; this :resource-event-ttl defaults to :report-ttl if unset
+         ;; we probably want to change this config setup to only alter
+         ;; the :resource-event-ttl
+         (assoc-in [:database :report-ttl] "1d")
+         (assoc-in [:database :node-purge-ttl] "1s")
+         (assoc-in [:database :gc-interval] "0"))
+     (fn []
+       ;; example of how to submitt a command to pdb via the http endpoint
+       (svc-utils/sync-command-post
+        (svc-utils/pdb-cmd-url)
+        "foo.1"
+        "store report"
+        cmd-consts/latest-report-version
+        (assoc example-report :certname "foo.1"))))))
